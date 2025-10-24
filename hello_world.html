@@ -1,27 +1,25 @@
 <!DOCTYPE html>
-<html>
-
-<head>
-    <title>Rotating Cube — WebGPU</title>
+<html lang="en">
+  <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <script type="application/javascript">
-        async function rotatingCube() {
-            if (!navigator.gpu) {
-                alert("WebGPU not supported in this browser.");
-                return;
-            }
-
-            const adapter = await navigator.gpu.requestAdapter();
-            const device = await adapter.requestDevice();
-
-            const canvas = document.getElementById("rotating-cube-canvas");
-            const context = canvas.getContext("webgpu");
-
-            const format = navigator.gpu.getPreferredCanvasFormat();
-            context.configure({ device, format, alphaMode: "premultiplied" });
-
-            const vertexShaderSource = `
+      async function rotatingCube() {
+        if (!navigator.gpu) {
+          alert("WebGPU not supported in this browser.");
+          return;
+        }
+        
+        const adapter = await navigator.gpu.requestAdapter();
+        const device = await adapter.requestDevice();
+        
+        const canvas = document.getElementById("rotating-cube-canvas");
+        const context = canvas.getContext("webgpu");
+        
+        const format = navigator.gpu.getPreferredCanvasFormat();
+        context.configure({ device, format, alphaMode: "premultiplied" });
+        
+        const vertexShaderSource = `
           @binding(0) @group(0) var<uniform> projectionMatrix: mat4x4<f32>;
 
           struct Input {
@@ -46,8 +44,8 @@
             return output;
           }
         `;
-
-            const fragmentShaderSource = `
+        
+        const fragmentShaderSource = `
           @fragment
           fn main(
             @location(0) color_rgba: vec4<f32>,
@@ -56,518 +54,552 @@
             return color_rgba;
           }
         `;
-
-            const vertexModule = device.createShaderModule({
-                code: vertexShaderSource,
-            });
-            const fragmentModule = device.createShaderModule({
-                code: fragmentShaderSource,
-            });
-
-            const bindGroupLayout = device.createBindGroupLayout({
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.VERTEX,
-                        buffer: { type: "uniform" },
-                    },
+        
+        const vertexModule = device.createShaderModule({
+          code: vertexShaderSource,
+        });
+        const fragmentModule = device.createShaderModule({
+          code: fragmentShaderSource,
+        });
+        
+        const bindGroupLayout = device.createBindGroupLayout({
+          entries: [
+            {
+              binding: 0,
+              visibility: GPUShaderStage.VERTEX,
+              buffer: { type: "uniform" },
+            },
+          ],
+        });
+        
+        const pipelineLayout = device.createPipelineLayout({
+          bindGroupLayouts: [bindGroupLayout],
+        });
+        
+        const renderPipeline = device.createRenderPipeline({
+          layout: pipelineLayout,
+          vertex: {
+            module: vertexModule,
+            entryPoint: "main",
+            buffers: [
+              {
+                arrayStride: VERTEX_SIZE,
+                attributes: [
+                  {
+                    shaderLocation: 0,
+                    offset: VERTEX_XYZ_OFFSET,
+                    format: "float32x3",
+                  },
+                  {
+                    shaderLocation: 1,
+                    offset: VERTEX_UV_OFFSET,
+                    format: "float32x2",
+                  },
+                  {
+                    shaderLocation: 2,
+                    offset: VERTEX_RGBA_OFFSET,
+                    format: "float32x4",
+                  },
                 ],
-            });
-
-            const pipelineLayout = device.createPipelineLayout({
-                bindGroupLayouts: [bindGroupLayout],
-            });
-
-            const renderPipeline = device.createRenderPipeline({
-                layout: pipelineLayout,
-                vertex: {
-                    module: vertexModule,
-                    entryPoint: "main",
-                    buffers: [
-                        {
-                            arrayStride: VERTEX_SIZE,
-                            attributes: [
-                                {
-                                    shaderLocation: 0,
-                                    offset: VERTEX_XYZ_OFFSET,
-                                    format: "float32x3",
-                                },
-                                {
-                                    shaderLocation: 1,
-                                    offset: VERTEX_UV_OFFSET,
-                                    format: "float32x2",
-                                },
-                                {
-                                    shaderLocation: 2,
-                                    offset: VERTEX_RGBA_OFFSET,
-                                    format: "float32x4",
-                                },
-                            ],
-                        },
-                    ],
-                },
-                fragment: {
-                    module: fragmentModule,
-                    entryPoint: "main",
-                    targets: [{ format }],
-                },
-                primitive: { topology: "triangle-list" },
-                depthStencil: {
-                    format: "depth24plus",
-                    depthWriteEnabled: true,
-                    depthCompare: "less",
-                },
-            });
-
-            const cube = new Cube();
-            const vertexBuffer = cube.allocateBuffer(device);
-
-            let depthTexture = device.createTexture({
-                size: [canvas.width, canvas.height],
-                format: "depth24plus",
-                usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            });
-            let depthView = depthTexture.createView();
-
-            const projectionMatrixBuffer = device.createBuffer({
-                size: Float32Array.BYTES_PER_ELEMENT * 16,
-                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-            });
-
-            const uniformBindGroup = device.createBindGroup({
-                layout: bindGroupLayout,
-                entries: [
-                    {
-                        binding: 0,
-                        resource: { buffer: projectionMatrixBuffer },
-                    },
-                ],
-            });
-
-            function rotatingProjectionMatrix() {
-                const translation = new Float32Array([
-                    1, 0, 0, 0,
-                    0, 1, 0, 0,
-                    0, 0, 1, 0,
-                    0, 0, -4, 1,
-                ]);
-
-                const now = Date.now() / 1000;
-                const viewMatrix = mat4_rotate_xy(translation, Math.sin(now), Math.cos(now));
-                const projMatrix = mat4_perspective((2 * Math.PI) / 5, canvas.width / canvas.height, 1, 100);
-                return mat4_multiply(projMatrix, viewMatrix);
-            }
-
-            function writeProjectionMatrix(matrix) {
-                device.queue.writeBuffer(projectionMatrixBuffer, 0, matrix);
-            }
-
-            function renderPass(renderTo) {
-                const colorAttachments = [
-                    {
-                        view: context.getCurrentTexture().createView(),
-                        clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 0.0 },
-                        loadOp: "clear",
-                        storeOp: "store",
-                    },
-                ];
-
-                const depthAttachment = {
-                    view: depthView,
-                    depthClearValue: 1.0,
-                    depthLoadOp: "clear",
-                    depthStoreOp: "store",
-                };
-
-                const encoder = device.createCommandEncoder();
-                const pass = encoder.beginRenderPass({
-                    colorAttachments,
-                    depthStencilAttachment: depthAttachment,
-                });
-
-                renderTo(pass);
-                pass.end();
-
-                const commandBuffer = encoder.finish();
-                device.queue.submit([commandBuffer]);
-            }
-
-            function draw() {
-                const matrix = rotatingProjectionMatrix();
-                writeProjectionMatrix(matrix);
-
-                renderPass((pass) => {
-                    pass.setPipeline(renderPipeline);
-                    pass.setBindGroup(0, uniformBindGroup);
-                    pass.setVertexBuffer(0, vertexBuffer);
-                    pass.draw(cube.vertexCount, 1, 0, 0);
-                });
-
-                requestAnimationFrame(draw);
-            }
-
-            requestAnimationFrame(draw);
+              },
+            ],
+          },
+          fragment: {
+            module: fragmentModule,
+            entryPoint: "main",
+            targets: [{ format }],
+          },
+          primitive: { topology: "triangle-list" },
+          depthStencil: {
+            format: "depth24plus",
+            depthWriteEnabled: true,
+            depthCompare: "less",
+          },
+        });
+        
+        const cube = new Cube();
+        const vertexBuffer = cube.allocateBuffer(device);
+        
+        let depthTexture = device.createTexture({
+          size: [canvas.width, canvas.height],
+          format: "depth24plus",
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        let depthView = depthTexture.createView();
+        
+        const projectionMatrixBuffer = device.createBuffer({
+          size: Float32Array.BYTES_PER_ELEMENT * 16,
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        
+        const uniformBindGroup = device.createBindGroup({
+          layout: bindGroupLayout,
+          entries: [
+            {
+              binding: 0,
+              resource: { buffer: projectionMatrixBuffer },
+            },
+          ],
+        });
+        
+        function rotatingProjectionMatrix() {
+          const translation = new Float32Array([
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, -4, 1,
+          ]);
+          
+          const now = Date.now() / 1000;
+          const viewMatrix = mat4_rotate_xy(translation, Math.sin(now), Math.cos(now));
+          const projMatrix = mat4_perspective((2 * Math.PI) / 5, canvas.width / canvas.height, 1, 100);
+          return mat4_multiply(projMatrix, viewMatrix);
         }
-
-        const VERTEX_SIZE = Float32Array.BYTES_PER_ELEMENT * 9;
-        const VERTEX_XYZ_OFFSET = 0;
-        const VERTEX_UV_OFFSET = Float32Array.BYTES_PER_ELEMENT * 3;
-        const VERTEX_RGBA_OFFSET = Float32Array.BYTES_PER_ELEMENT * 5;
-
-        class Cube {
-            constructor() {
-                const blue = [0, 0, 1, 1];
-                const green = [0, 1, 0, 1];
-                const red = [1, 0, 0, 1];
-                const pink = [1, 0, 1, 1];
-                const white = [1, 1, 1, 1];
-                const black = [0, 0, 0, 1];
-                const cyan = [0, 1, 1, 1];
-                const yellow = [1, 1, 0, 1];
-
-                this.vertexArray = new Float32Array(
-                    [
-                        [[1, -1, 1], [0, 1], pink],
-                        [[-1, -1, 1], [1, 1], blue],
-                        [[-1, -1, -1], [1, 0], black],
-                        [[1, -1, -1], [0, 0], red],
-                        [[1, -1, 1], [0, 1], pink],
-                        [[-1, -1, -1], [1, 0], black],
-
-                        [[1, 1, 1], [0, 1], white],
-                        [[1, -1, 1], [1, 1], pink],
-                        [[1, -1, -1], [1, 0], red],
-                        [[1, 1, -1], [0, 0], yellow],
-                        [[1, 1, 1], [0, 1], white],
-                        [[1, -1, -1], [1, 0], red],
-
-                        [[-1, 1, 1], [0, 1], cyan],
-                        [[1, 1, 1], [1, 1], white],
-                        [[1, 1, -1], [1, 0], yellow],
-                        [[-1, 1, -1], [0, 0], green],
-                        [[-1, 1, 1], [0, 1], cyan],
-                        [[1, 1, -1], [1, 0], yellow],
-
-                        [[-1, -1, 1], [0, 1], blue],
-                        [[-1, 1, 1], [1, 1], cyan],
-                        [[-1, 1, -1], [1, 0], green],
-                        [[-1, -1, -1], [0, 0], black],
-                        [[-1, -1, 1], [0, 1], blue],
-                        [[-1, 1, -1], [1, 0], green],
-
-                        [[1, 1, 1], [0, 1], white],
-                        [[-1, 1, 1], [1, 1], cyan],
-                        [[-1, -1, 1], [1, 0], blue],
-                        [[-1, -1, 1], [1, 0], blue],
-                        [[1, -1, 1], [0, 0], pink],
-                        [[1, 1, 1], [0, 1], white],
-
-                        [[1, -1, -1], [0, 1], red],
-                        [[-1, -1, -1], [1, 1], black],
-                        [[-1, 1, -1], [1, 0], green],
-                        [[1, 1, -1], [0, 0], yellow],
-                        [[1, -1, -1], [0, 1], red],
-                        [[-1, 1, -1], [1, 0], green],
-                    ].flat(2)
-                );
-
-                this.vertexCount = this.vertexArray.length / 9;
+        
+        function writeProjectionMatrix(matrix) {
+          device.queue.writeBuffer(projectionMatrixBuffer, 0, matrix);
+        }
+        
+        function renderPass(renderTo) {
+          const colorAttachments = [
+            {
+              view: context.getCurrentTexture().createView(),
+              clearValue: { r: 0.0, g: 0.0, b: 0.0, a: 0.0 },
+              loadOp: "clear",
+              storeOp: "store",
+            },
+          ];
+          
+          const depthAttachment = {
+            view: depthView,
+            depthClearValue: 1.0,
+            depthLoadOp: "clear",
+            depthStoreOp: "store",
+          };
+          
+          const encoder = device.createCommandEncoder();
+          const pass = encoder.beginRenderPass({
+            colorAttachments,
+            depthStencilAttachment: depthAttachment,
+          });
+          
+          renderTo(pass);
+          pass.end();
+          
+          const commandBuffer = encoder.finish();
+          device.queue.submit([commandBuffer]);
+        }
+        
+        function draw() {
+          const matrix = rotatingProjectionMatrix();
+          writeProjectionMatrix(matrix);
+          
+          renderPass((pass) => {
+            pass.setPipeline(renderPipeline);
+            pass.setBindGroup(0, uniformBindGroup);
+            pass.setVertexBuffer(0, vertexBuffer);
+            pass.draw(cube.vertexCount, 1, 0, 0);
+          });
+          
+          requestAnimationFrame(draw);
+        }
+        
+        requestAnimationFrame(draw);
+      }
+      
+      const VERTEX_SIZE = Float32Array.BYTES_PER_ELEMENT * 9;
+      const VERTEX_XYZ_OFFSET = 0;
+      const VERTEX_UV_OFFSET = Float32Array.BYTES_PER_ELEMENT * 3;
+      const VERTEX_RGBA_OFFSET = Float32Array.BYTES_PER_ELEMENT * 5;
+      
+      class Cube {
+        constructor() {
+          const blue = [0, 0, 1, 1];
+          const green = [0, 1, 0, 1];
+          const red = [1, 0, 0, 1];
+          const pink = [1, 0, 1, 1];
+          const white = [1, 1, 1, 1];
+          const black = [0, 0, 0, 1];
+          const cyan = [0, 1, 1, 1];
+          const yellow = [1, 1, 0, 1];
+          
+          this.vertexArray = new Float32Array(
+            [
+              [[1, -1, 1], [0, 1], pink],
+              [[-1, -1, 1], [1, 1], blue],
+              [[-1, -1, -1], [1, 0], black],
+              [[1, -1, -1], [0, 0], red],
+              [[1, -1, 1], [0, 1], pink],
+              [[-1, -1, -1], [1, 0], black],
+              
+              [[1, 1, 1], [0, 1], white],
+              [[1, -1, 1], [1, 1], pink],
+              [[1, -1, -1], [1, 0], red],
+              [[1, 1, -1], [0, 0], yellow],
+              [[1, 1, 1], [0, 1], white],
+              [[1, -1, -1], [1, 0], red],
+              
+              [[-1, 1, 1], [0, 1], cyan],
+              [[1, 1, 1], [1, 1], white],
+              [[1, 1, -1], [1, 0], yellow],
+              [[-1, 1, -1], [0, 0], green],
+              [[-1, 1, 1], [0, 1], cyan],
+              [[1, 1, -1], [1, 0], yellow],
+              
+              [[-1, -1, 1], [0, 1], blue],
+              [[-1, 1, 1], [1, 1], cyan],
+              [[-1, 1, -1], [1, 0], green],
+              [[-1, -1, -1], [0, 0], black],
+              [[-1, -1, 1], [0, 1], blue],
+              [[-1, 1, -1], [1, 0], green],
+              
+              [[1, 1, 1], [0, 1], white],
+              [[-1, 1, 1], [1, 1], cyan],
+              [[-1, -1, 1], [1, 0], blue],
+              [[-1, -1, 1], [1, 0], blue],
+              [[1, -1, 1], [0, 0], pink],
+              [[1, 1, 1], [0, 1], white],
+              
+              [[1, -1, -1], [0, 1], red],
+              [[-1, -1, -1], [1, 1], black],
+              [[-1, 1, -1], [1, 0], green],
+              [[1, 1, -1], [0, 0], yellow],
+              [[1, -1, -1], [0, 1], red],
+              [[-1, 1, -1], [1, 0], green],
+            ].flat(2)
+          );
+          
+          this.vertexCount = this.vertexArray.length / 9;
+        }
+        
+        allocateBuffer(device) {
+          const buf = device.createBuffer({
+            size: this.vertexArray.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+            mappedAtCreation: true,
+          });
+          new Float32Array(buf.getMappedRange()).set(this.vertexArray);
+          buf.unmap();
+          return buf;
+        }
+      }
+      
+      function mat4_rotate_xy(m, x, y) {
+        const cosX = Math.cos(x),
+        sinX = Math.sin(x),
+        cosY = Math.cos(y),
+        sinY = Math.sin(y);
+        
+        const rotX = new Float32Array([
+          1, 0, 0, 0,
+          0, cosX, sinX, 0,
+          0, -sinX, cosX, 0,
+          0, 0, 0, 1,
+        ]);
+        
+        const rotY = new Float32Array([
+          cosY, 0, -sinY, 0,
+          0, 1, 0, 0,
+          sinY, 0, cosY, 0,
+          0, 0, 0, 1,
+        ]);
+        
+        return mat4_multiply(m, mat4_multiply(rotY, rotX));
+      }
+      
+      function mat4_multiply(a, b) {
+        const out = new Float32Array(16);
+        for (let i = 0; i < 4; ++i) {
+          for (let j = 0; j < 4; ++j) {
+            let sum = 0;
+            for (let k = 0; k < 4; ++k) {
+              sum += a[k * 4 + j] * b[i * 4 + k];
             }
-
-            allocateBuffer(device) {
-                const buf = device.createBuffer({
-                    size: this.vertexArray.byteLength,
-                    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-                    mappedAtCreation: true,
-                });
-                new Float32Array(buf.getMappedRange()).set(this.vertexArray);
-                buf.unmap();
-                return buf;
-            }
+            out[i * 4 + j] = sum;
+          }
         }
-
-        function mat4_rotate_xy(m, x, y) {
-            const cosX = Math.cos(x),
-                sinX = Math.sin(x),
-                cosY = Math.cos(y),
-                sinY = Math.sin(y);
-
-            const rotX = new Float32Array([
-                1, 0, 0, 0,
-                0, cosX, sinX, 0,
-                0, -sinX, cosX, 0,
-                0, 0, 0, 1,
-            ]);
-
-            const rotY = new Float32Array([
-                cosY, 0, -sinY, 0,
-                0, 1, 0, 0,
-                sinY, 0, cosY, 0,
-                0, 0, 0, 1,
-            ]);
-
-            return mat4_multiply(m, mat4_multiply(rotY, rotX));
-        }
-
-        function mat4_multiply(a, b) {
-            const out = new Float32Array(16);
-            for (let i = 0; i < 4; ++i) {
-                for (let j = 0; j < 4; ++j) {
-                    let sum = 0;
-                    for (let k = 0; k < 4; ++k) {
-                        sum += a[k * 4 + j] * b[i * 4 + k];
-                    }
-                    out[i * 4 + j] = sum;
-                }
-            }
-            return out;
-        }
-
-        function mat4_perspective(fov, aspect, near, far) {
-            const f = Math.tan(Math.PI * 0.5 - 0.5 * fov);
-            const rangeInv = 1.0 / (near - far);
-            return new Float32Array([
-                f / aspect, 0, 0, 0,
-                0, f, 0, 0,
-                0, 0, (far + near) * rangeInv, -1,
-                0, 0, far * near * rangeInv * 2, 0,
-            ]);
-        }
+        return out;
+      }
+      
+      function mat4_perspective(fov, aspect, near, far) {
+        const f = Math.tan(Math.PI * 0.5 - 0.5 * fov);
+        const rangeInv = 1.0 / (near - far);
+        return new Float32Array([
+          f / aspect, 0, 0, 0,
+          0, f, 0, 0,
+          0, 0, (far + near) * rangeInv, -1,
+          0, 0, far * near * rangeInv * 2, 0,
+        ]);
+      }
     </script>
+    
+    <title>Rotating Cube — WebGPU</title>
     <style>
-        body {
-            color-scheme: light dark;
-            font-family: system-ui, sans-serif;
-            background: light-dark(#eee, #242936);
-            color: light-dark(#000, #fff);
-            transition: background 0.3s, color 0.3s;
-            margin: 0;
-            padding: 0;
-        }
-
-        /* Respond to selected radio buttons */
-        body:has(#theme-light:checked) {
-            color-scheme: light;
-            background: #eee;
-            color: #000;
-        }
-
-        body:has(#theme-dark:checked) {
-            color-scheme: dark;
-            background: #242936;
-            color: #fff;
-        }
-
-        /* Fixed upper-right theme picker */
-        .theme-picker {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            display: inline-flex;
-            gap: 0;
-            border: 1px solid #9994;
-            border-radius: 8px;
-            overflow: hidden;
-            user-select: none;
-            z-index: 1000;
-            background: light-dark(#f8f8f8, #1e1e2f);
-        }
-
-        .theme-picker label {
-            padding: 8px 14px;
-            cursor: pointer;
-            background: #0001;
-            transition: background 0.2s, box-shadow 0.2s;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.9rem;
-        }
-
-        .theme-picker label:hover {
-            background: #0002;
-        }
-
-        .theme-picker input {
-            position: absolute;
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        .theme-picker label:has(input:checked) {
-            background: light-dark(#ddd, #444);
-            box-shadow: inset 0 0 4px light-dark(#888, #000);
-        }
-
-        /* Focus outline for accessibility */
-        .theme-picker label:has(input:focus-visible) {
-            outline: 2px solid light-dark(#000, #fff);
-            outline-offset: -2px;
-        }
-
-        /* ==== Hello World wavy text effect ==== */
-        @property --wavey {
-            syntax: '<number>';
-            inherits: true;
-            initial-value: 0;
-        }
-
-        .wave-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 128px;
-            font-size: 2rem;
-            font-weight: bold;
-            color: transparent;
-        }
-
-        .wave-container>div {
-            will-change: transform;
-            /* use custom property to animate vertical sine motion */
-            animation: wavey 3.5s linear infinite;
-        }
-
-        .wave-container>div:nth-child(1) {
-            --nth: 1;
-        }
-
-        .wave-container>div:nth-child(2) {
-            --nth: 2;
-        }
-
-        .wave-container>div:nth-child(3) {
-            --nth: 3;
-        }
-
-        .wave-container>div:nth-child(4) {
-            --nth: 4;
-        }
-
-        .wave-container>div:nth-child(5) {
-            --nth: 5;
-        }
-
-        .wave-container>div:nth-child(6) {
-            --nth: 6;
-        }
-
-        .wave-container>div:nth-child(7) {
-            --nth: 7;
-        }
-
-        .wave-container>div:nth-child(8) {
-            --nth: 8;
-        }
-
-        .wave-container>div:nth-child(9) {
-            --nth: 9;
-        }
-
-        .wave-container>div:nth-child(10) {
-            --nth: 10;
-        }
-
-        .wave-container>div:nth-child(11) {
-            --nth: 11;
-        }
-
-        .wave-container>div:nth-child(12) {
-            --nth: 12;
-        }
-
-        .wave-container>div:nth-child(13) {
-            --nth: 13;
-        }
-
-        @keyframes wavey {
-            from {
-                --wavey: 0;
-            }
-
-            to {
-                --wavey: calc(pi * 2);
-            }
-        }
-
-        .wave-container>div {
-            translate: 0 calc(sin(var(--nth) * 0.35 - var(--wavey) * 3) * 5px);
-            --color: oklch(0.75 0.12 calc((var(--nth) * 30 + var(--wavey) * 180 / pi) * 1deg));
-            text-shadow: 0 0 0 var(--color);
-        }
-
-        /* ==== Styling for details/summary ==== */
-        details.custom-details {
-            border: 1px solid #aaa;
-            border-radius: 8px;
-            padding: 0.5em;
-            margin: 1em 0;
-        }
-
-        details.custom-details summary {
-            cursor: pointer;
-            font-weight: bold;
-            margin-bottom: 0.5em;
-        }
-
-        details.custom-details summary>* {
-            display: inline;
-            /* ensure nested headings or block elements stay inline */
-        }
-
-        /* Light mode marker color */
-        body:has(#theme-light:checked) details.custom-details summary::marker {
-            color: #333;
-            /* dark gray for light mode */
-        }
-
-        /* Dark mode marker color */
-        body:has(#theme-dark:checked) details.custom-details summary::marker {
-            color: #dbdbdb;
-            /* reddish accent for dark mode */
-        }
-
-        details.custom-details div.content {
-            padding: 0.5em 0;
-        }
+      /* ==== BASE LAYOUT ==== */
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        min-height: 100vh;
+        font-family: "VT323", monospace;
+        font-size: 48px;
+        text-shadow: 0 0 4px #00aeef;
+        background-color: #000;
+        background-image: radial-gradient(rgba(0, 174, 239, 0.35), black 120%);
+        background-repeat: repeat;
+        background-attachment: fixed;
+        color-scheme: light dark;
+        color: light-dark(#000, #fff);
+        margin: 0;
+        padding: 0;
+        transition: background 0.3s, color 0.3s;
+      }
+      
+      /* Light / Dark modes */
+      body:has(#theme-light:checked) {
+        color-scheme: light;
+        background: #eee;
+        color: #000;
+      }
+      
+      body:has(#theme-dark:checked) {
+        color-scheme: dark;
+        background: #242936;
+        color: #fff;
+      }
+      
+      /* ==== CRT OVERLAY EFFECT ==== */
+      .crt {
+        position: relative;
+        z-index: 0;
+      }
+      
+      .crt::before,
+      .crt::after {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: 100%;
+        pointer-events: none;
+        z-index: 2;
+      }
+      
+      .crt::before {
+        background:
+        linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+        background-size: 100% 2px, 3px 100%;
+      }
+      
+      .crt::after {
+        background: rgba(18, 16, 16, 0.1);
+        animation: flicker 0.5s infinite;
+      }
+      
+      @keyframes flicker {
+        0% { opacity: 0.77861; }
+        5% { opacity: 0.94769; }
+        10% { opacity: 0.73604; }
+        15% { opacity: 0.99626; }
+        20% { opacity: 0.68128; }
+        25% { opacity: 0.99891; }
+        30% { opacity: 0.95583; }
+        35% { opacity: 0.97807; }
+        40% { opacity: 0.76559; }
+        45% { opacity: 0.99693; }
+        50% { opacity: 0.99019; }
+        55% { opacity: 0.58594; }
+        60% { opacity: 0.70313; }
+        65% { opacity: 0.99988; }
+        70% { opacity: 0.99455; }
+        75% { opacity: 0.87288; }
+        80% { opacity: 0.99428; }
+        85% { opacity: 0.99419; }
+        90% { opacity: 0.99003; }
+        95% { opacity: 0.86108; }
+        100% { opacity: 0.74387; }
+      }
+      
+      /* ==== THEME PICKER ==== */
+      .theme-picker {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        display: inline-flex;
+        border: 1px solid #9994;
+        border-radius: 8px;
+        overflow: hidden;
+        user-select: none;
+        z-index: 1000;
+        background: light-dark(#f8f8f8, #1e1e2f);
+      }
+      
+      .theme-picker label {
+        padding: 8px 14px;
+        cursor: pointer;
+        background: #0001;
+        transition: background 0.2s, box-shadow 0.2s;
+        font-size: 0.9rem;
+      }
+      
+      .theme-picker label:hover {
+        background: #0002;
+      }
+      
+      .theme-picker input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+      
+      .theme-picker label:has(input:checked) {
+        background: light-dark(#ddd, #444);
+        box-shadow: inset 0 0 4px light-dark(#888, #000);
+      }
+      
+      .theme-picker label:has(input:focus-visible) {
+        outline: 2px solid light-dark(#000, #fff);
+        outline-offset: -2px;
+      }
+      
+      /* ==== HELLO WORLD WAVE ==== */
+      @property --wavey {
+        syntax: '<number>';
+        inherits: true;
+        initial-value: 0;
+      }
+      
+      .wave-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 2rem;
+        font-weight: bold;
+        color: transparent;
+        margin-top: 3rem;
+      }
+      
+      .wave-container > div {
+        will-change: transform;
+        animation: wavey 3.5s linear infinite;
+      }
+      
+      @keyframes wavey {
+        from { --wavey: 0; }
+        to { --wavey: calc(pi * 2); }
+      }
+      
+      .wave-container > div {
+        translate: 0 calc(sin(var(--nth) * 0.35 - var(--wavey) * 3) * 5px);
+        --color: oklch(0.75 0.12 calc((var(--nth) * 30 + var(--wavey) * 180 / pi) * 1deg));
+        text-shadow: 0 0 0 var(--color);
+      }
+      
+      .wave-container > div:nth-child(n) {
+        --nth: calc(var(--child-index));
+      }
+      
+      /* ==== BOTTOM ROW (details + canvas) ==== */
+      .bottom-row {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 2rem;
+        margin-top: 2rem;
+      }
+      
+      /* ==== DETAILS COMPONENT ==== */
+      details.custom-details {
+        border: 1px solid #aaa;
+        border-radius: 8px;
+        padding: 0.5em;
+        font-size: 1rem;
+        transition: all 0.3s ease;
+        width: 200px;
+      }
+      
+      details.custom-details summary {
+        cursor: pointer;
+        font-weight: bold;
+        margin-bottom: 0.5em;
+      }
+      
+      details.custom-details summary > * {
+        display: inline;
+      }
+      
+      body:has(#theme-light:checked) details.custom-details summary::marker {
+        color: #333;
+      }
+      
+      body:has(#theme-dark:checked) details.custom-details summary::marker {
+        color: #dbdbdb;
+      }
+      
+      details.custom-details .content {
+        padding: 0;
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.4s ease, padding 0.3s ease;
+      }
+      
+      details.custom-details:hover .content,
+      details.custom-details[open] .content {
+        max-height: 300px;
+        padding: 0.5em 0;
+      }
+      
+      details.custom-details:hover {
+        border-color: #00aeef;
+        box-shadow: 0 0 8px #00aeef;
+      }
+      
+      /* ==== CANVAS ==== */
+      #rotating-cube-canvas {
+        border: 1px solid #00aeef;
+        box-shadow: 0 0 8px #00aeef;
+      }
     </style>
-</head>
-
-<body>
-
+  </head>
+  
+  <body class="crt">
+    <!-- Theme picker -->
     <div class="theme-picker" role="radiogroup" aria-label="Theme picker">
-        <label><input type="radio" name="theme" id="theme-auto" checked>Auto</label>
-        <label><input type="radio" name="theme" id="theme-light">Light</label>
-        <label><input type="radio" name="theme" id="theme-dark">Dark</label>
+      <label><input type="radio" name="theme" id="theme-auto" checked>Auto</label>
+      <label><input type="radio" name="theme" id="theme-light">Light</label>
+      <label><input type="radio" name="theme" id="theme-dark">Dark</label>
     </div>
+    
+    <!-- Top: Hello World -->
     <div class="wave-container">
-        <div>H</div>
-        <div>e</div>
-        <div>l</div>
-        <div>l</div>
-        <div>o</div>
-        <div>,</div>
-        <div> </div>
-        <div>W</div>
-        <div>o</div>
-        <div>r</div>
-        <div>l</div>
-        <div>d</div>
-        <div>!</div>
+      <div style="--nth:1;">H</div>
+      <div style="--nth:2;">e</div>
+      <div style="--nth:3;">l</div>
+      <div style="--nth:4;">l</div>
+      <div style="--nth:5;">o</div>
+      <div style="--nth:6;">,</div>
+      <div style="--nth:7;">&nbsp;</div>
+      <div style="--nth:8;">W</div>
+      <div style="--nth:9;">o</div>
+      <div style="--nth:10;">r</div>
+      <div style="--nth:11;">l</div>
+      <div style="--nth:12;">d</div>
+      <div style="--nth:13;">!</div>
     </div>
-
-    <!-- Details / Summary section only styled by its own CSS -->
-    <details class="custom-details">
-        <summary>What's your name?</summary>
-        <div class="content">My name is redacted.</div>
-    </details>
-
-    <details class="custom-details">
-        <summary>Another question?</summary>
-        <div class="content">Another answer.</div>
-    </details>
-    <canvas id="rotating-cube-canvas" width="800" height="800"></canvas>
+    
+    <!-- Bottom row: summary + cube -->
+    <div class="bottom-row">
+      <details class="custom-details">
+        <summary>whoami</summary>
+        <div class="content">nsdepression</div>
+      </details>
+      
+      <canvas id="rotating-cube-canvas" width="800" height="800"></canvas>
+    </div>
     <script type="application/javascript">rotatingCube();</script>
-</body>
-
+  </body>
 </html>
